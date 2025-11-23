@@ -22,29 +22,31 @@ from torch.distributions.independent import Independent
 import numpy as np
 from tools import weight_init
 import cv2
-
     
 class Encoder(nn.Module):
-    def __init__(self, depth=128, mults=(1, 2, 4, 2), norm='rms', act='SiLU', kernel=4, padding='same', first_stride=True, input_size=(3, 64, 64), dtype=None, device=None) -> None:
+    def __init__(self, depth=128, mults=(1, 2, 4, 2), norm='rms', act='SiLU', kernel=4, padding='same',
+                 first_stride=True, input_size=(3, 64, 64), dtype=None, device=None) -> None:
         super().__init__()
         act = getattr(nn, act)
         self.depths = [depth * mult for mult in mults]
         self.kernel = kernel
         self.stride = 2
         self.padding = (kernel - 1) // 2 if padding == 'same' else padding
-        
+
         backbone = []
         current_channels, current_height, current_width = input_size
 
         # Define convolutional layers for image inputs
         for i, depth in enumerate(self.depths):
             stride = 1 if i == 0 and first_stride else self.stride
-            conv = nn.Conv2d(in_channels=current_channels, out_channels=depth, kernel_size=kernel, stride=stride, padding=self.padding, dtype=dtype, device=device)
+            conv = nn.Conv2d(in_channels=current_channels, out_channels=depth, kernel_size=kernel, stride=stride,
+                             padding=self.padding, dtype=dtype, device=device)
             backbone.append(conv)
             backbone.append(nn.BatchNorm2d(depth, dtype=dtype, device=device))
             backbone.append(act())
-            
-            current_height, current_width = self._compute_output_dim(current_height, current_width, kernel, stride, self.padding)
+
+            current_height, current_width = self._compute_output_dim(current_height, current_width, kernel, stride,
+                                                                     self.padding)
             current_channels = depth
 
         self.backbone = nn.Sequential(*backbone)
@@ -64,6 +66,7 @@ class Encoder(nn.Module):
         x = self.backbone(x)
         x = rearrange(x, "(B L) C H W -> B L (C H W)", B=batch_size)
         return x
+
 
 class Decoder(nn.Module):
     def __init__(self, stoch_dim, depth=128, mults=(1, 2, 4, 2), norm='rms', act='SiLU', kernel=4, padding='same',
@@ -103,35 +106,25 @@ class Decoder(nn.Module):
                                                                                 self.output_padding)
             current_channels = depth
 
-        stride = 1 if i == 0 and first_stride else self.stride
-        # Turn this on for smaller representation on Laptop GPU
-        if not first_stride:
-            output_padding = 0 if i == 0 and first_stride else self.output_padding
-            backbone.append(
-                nn.ConvTranspose2d(
-                    in_channels=self.depths[0],
-                    out_channels=input_size[0],
-                    kernel_size=kernel,
-                    stride=stride,
-                    padding=self.padding,
-                    output_padding=output_padding,
-                    dtype=dtype, device=device
-                )
-            )
-        else:
-            backbone.append(
-                nn.ConvTranspose2d(
-                    in_channels=self.depths[0],
-                    out_channels=input_size[0],
-                    kernel_size=kernel,
-                    stride=stride,
-                    padding=self.padding,
-                    dtype=dtype, device=device
-                )
-            )
+        stride = 1 if (not first_stride and i == 0) else self.stride
+        output_padding = 0 if i == 0 else self.output_padding
 
-        current_height, current_width = self._compute_transposed_output_dim(current_height, current_width, kernel,
-                                                                            stride, self.padding, 0)
+        backbone.append(
+            nn.ConvTranspose2d(
+                in_channels=self.depths[0],
+                out_channels=input_size[0],
+                kernel_size=kernel,
+                stride=stride,
+                padding=self.padding,
+                output_padding=output_padding,
+                dtype=dtype, device=device
+            )
+        )
+
+        current_height, current_width = self._compute_transposed_output_dim(
+            current_height, current_width, kernel,
+            stride, self.padding, output_padding
+        )
         self.final_output_dim = (input_size[0], current_height, current_width)
         self.backbone = nn.Sequential(*backbone)
         self.backbone.apply(weight_init)
