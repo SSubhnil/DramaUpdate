@@ -65,23 +65,24 @@ class Encoder(nn.Module):
         x = rearrange(x, "(B L) C H W -> B L (C H W)", B=batch_size)
         return x
 
-    
-
 class Decoder(nn.Module):
-    def __init__(self, stoch_dim, depth=128, mults=(1, 2, 4, 2), norm='rms', act='SiLU', kernel=4, padding='same', first_stride=True, last_output_dim=(256, 4, 4),input_size=(3, 64, 64), cnn_sigmoid=False, dtype=None, device=None) -> None:
+    def __init__(self, stoch_dim, depth=128, mults=(1, 2, 4, 2), norm='rms', act='SiLU', kernel=4, padding='same',
+                 first_stride=True, last_output_dim=(256, 4, 4), input_size=(3, 64, 64), cnn_sigmoid=False, dtype=None,
+                 device=None) -> None:
         super().__init__()
         act = getattr(nn, act)
         self.depths = [depth * mult for mult in mults]
         self.kernel = kernel
         self.stride = 2
         self.padding = (kernel - 1) // 2 if padding == 'same' else padding
-        self.output_padding = self.stride //2 if padding == 'same' else 0
+        self.output_padding = self.stride // 2 if padding == 'same' else 0
         self._cnn_sigmoid = cnn_sigmoid
-
 
         backbone = []
         # stem
-        backbone.append(nn.Linear(stoch_dim, last_output_dim[0] * last_output_dim[1] * last_output_dim[2], bias=True, dtype=dtype, device=device))
+        backbone.append(
+            nn.Linear(stoch_dim, last_output_dim[0] * last_output_dim[1] * last_output_dim[2], bias=True, dtype=dtype,
+                      device=device))
         backbone.append(Rearrange('B L (C H W) -> (B L) C H W', C=last_output_dim[0], H=last_output_dim[1]))
         backbone.append(nn.BatchNorm2d(last_output_dim[0], dtype=dtype, device=device))
         backbone.append(act())
@@ -91,26 +92,47 @@ class Decoder(nn.Module):
         current_channels, current_height, current_width = last_output_dim
         # Define convolutional layers for image inputs
         for i, depth in reversed(list(enumerate(self.depths[:-1]))):
-            conv = nn.ConvTranspose2d(in_channels=current_channels, out_channels=depth, kernel_size=kernel, stride=self.stride, padding=self.padding, output_padding=self.output_padding, dtype=dtype, device=device)
+            conv = nn.ConvTranspose2d(in_channels=current_channels, out_channels=depth, kernel_size=kernel,
+                                      stride=self.stride, padding=self.padding, output_padding=self.output_padding,
+                                      dtype=dtype, device=device)
             backbone.append(conv)
             backbone.append(nn.BatchNorm2d(depth, dtype=dtype, device=device))
             backbone.append(act())
-            current_height, current_width = self._compute_transposed_output_dim(current_height, current_width, kernel, self.stride, self.padding, self.output_padding)
+            current_height, current_width = self._compute_transposed_output_dim(current_height, current_width, kernel,
+                                                                                self.stride, self.padding,
+                                                                                self.output_padding)
             current_channels = depth
 
         stride = 1 if i == 0 and first_stride else self.stride
-        backbone.append(
-            nn.ConvTranspose2d(
-                in_channels=self.depths[0],
-                out_channels=input_size[0],
-                kernel_size=kernel,
-                stride=stride,
-                padding=self.padding,
-                dtype=dtype, device=device
+        # Turn this on for smaller representation on Laptop GPU
+        if not first_stride:
+            output_padding = 0 if i == 0 and first_stride else self.output_padding
+            backbone.append(
+                nn.ConvTranspose2d(
+                    in_channels=self.depths[0],
+                    out_channels=input_size[0],
+                    kernel_size=kernel,
+                    stride=stride,
+                    padding=self.padding,
+                    output_padding=output_padding,
+                    dtype=dtype, device=device
+                )
             )
-        )
-        current_height, current_width = self._compute_transposed_output_dim(current_height, current_width, kernel, stride, self.padding, 0)
-        self.final_output_dim = (input_size[0], current_height, current_width)                
+        else:
+            backbone.append(
+                nn.ConvTranspose2d(
+                    in_channels=self.depths[0],
+                    out_channels=input_size[0],
+                    kernel_size=kernel,
+                    stride=stride,
+                    padding=self.padding,
+                    dtype=dtype, device=device
+                )
+            )
+
+        current_height, current_width = self._compute_transposed_output_dim(current_height, current_width, kernel,
+                                                                            stride, self.padding, 0)
+        self.final_output_dim = (input_size[0], current_height, current_width)
         self.backbone = nn.Sequential(*backbone)
         self.backbone.apply(weight_init)
 
@@ -118,7 +140,7 @@ class Decoder(nn.Module):
         new_height = (height - 1) * stride - 2 * padding + kernel_size + output_padding
         new_width = (width - 1) * stride - 2 * padding + kernel_size + output_padding
         return new_height, new_width
-    
+
     def forward(self, sample):
         batch_size = sample.shape[0]
         obs_hat = self.backbone(sample)
@@ -128,9 +150,6 @@ class Decoder(nn.Module):
         else:
             obs_hat += 0.5
         return obs_hat
-
-
-
 
 class DistHead(nn.Module):
     '''
@@ -529,7 +548,8 @@ class WorldModel(nn.Module):
                 embedding_dim,
             )
             inference_params = self.sequence_model._decoding_cache.inference_params
-            inference_params.reset(max_length, imagine_batch_size)
+            with torch.inference_mode():
+                inference_params.reset(max_length, imagine_batch_size)
         else:
             inference_params = InferenceParams(max_seqlen=max_length, max_batch_size=imagine_batch_size, key_value_dtype=torch.bfloat16 if self.use_amp else None)
 
@@ -559,7 +579,8 @@ class WorldModel(nn.Module):
                 return True
             return False
         with torch.autocast(device_type='cuda', dtype=torch.bfloat16, enabled=self.use_amp and not self.use_cg):
-            context_dist_feat = get_hidden_state(context_latent, sample_action, inference_params)
+            with torch.inference_mode():
+                context_dist_feat = get_hidden_state(context_latent, sample_action, inference_params)
             inference_params.seqlen_offset += context_dist_feat.shape[1]
             context_prior_logits = self.dist_head.forward_prior(context_dist_feat)
             context_prior_sample = self.stright_throught_gradient(context_prior_logits)
@@ -575,7 +596,8 @@ class WorldModel(nn.Module):
                 action_list.append(action)
                 self.action_buffer[:, i:i+1] = action
                 old_logits_list.append(logits)
-                dist_feat = get_hidden_state(sample_list[-1], action_list[-1], inference_params)
+                with torch.inference_mode():
+                    dist_feat = get_hidden_state(sample_list[-1], action_list[-1], inference_params)
                 dist_feat_list.append(dist_feat)
                 self.dist_feat_buffer[:, i+1:i+2] = dist_feat
                 inference_params.seqlen_offset += sample_list[-1].shape[1]

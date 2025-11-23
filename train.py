@@ -13,7 +13,6 @@ from utils import seed_np_torch, WandbLogger
 from replay_buffer import ReplayBuffer
 import agents
 from sub_models.world_models import WorldModel
-from mamba_ssm import InferenceParams
 from line_profiler import profile
 import yaml
 from envs.my_memory_maze import MemoryMaze
@@ -99,9 +98,9 @@ def joint_train_world_model_agent(config, logdir,
 
 
     if config.BasicSettings.Env_name.startswith('ALE'):
-        env = Atari(config.BasicSettings.Env_name, size=(config.BasicSettings.ImageSize,config.BasicSettings.ImageSize), seed=config.BasicSettings.Seed)
+        env = Atari(config.BasicSettings.Env_name, size=config.BasicSettings.ImageSize, seed=config.BasicSettings.Seed)
     elif config.BasicSettings.Env_name.startswith('memory'):
-        env = MemoryMaze(config.BasicSettings.Env_name, size=(config.BasicSettings.ImageSize,config.BasicSettings.ImageSize), seed=config.BasicSettings.Seed)
+        env = MemoryMaze(config.BasicSettings.Env_name, size=config.BasicSettings.ImageSize, seed=config.BasicSettings.Seed)
     else:
         assert ValueError(f'Unknown environment name: {config.BasicSettings.Env_name}')
     print("Current env: " + colorama.Fore.YELLOW + f"{config.BasicSettings.Env_name}" + colorama.Style.RESET_ALL)

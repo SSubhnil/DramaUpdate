@@ -11,7 +11,7 @@ class ReplayBuffer():
     def __init__(self, config, device="cuda") -> None:
         self.store_on_gpu = config.BasicSettings.ReplayBufferOnGPU
         max_length = config.JointTrainAgent.BufferMaxLength
-        obs_shape = (config.BasicSettings.ImageSize, config.BasicSettings.ImageSize, config.BasicSettings.ImageChannel)
+        obs_shape = (*config.BasicSettings.ImageSize, config.BasicSettings.ImageChannel)
         self.device = device
 
         if self.store_on_gpu:
