@@ -106,7 +106,7 @@ class Decoder(nn.Module):
                                                                                 self.output_padding)
             current_channels = depth
 
-        stride = 1 if (not first_stride and i == 0) else self.stride
+        stride = 1 if first_stride else self.stride
         output_padding = 0 if i == 0 else self.output_padding
 
         backbone.append(
