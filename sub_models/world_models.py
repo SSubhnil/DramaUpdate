@@ -252,7 +252,7 @@ class CategoricalKLDivLossWithFreeBits(nn.Module):
 
 
 class WorldModel(nn.Module):
-    def __init__(self, action_dim, config, device):
+    def __init__(self, action_dim, config, device, is_discrete=True):
         super().__init__()
         self.hidden_state_dim = config.Models.WorldModel.HiddenStateDim
         self.final_feature_width = config.Models.WorldModel.Transformer.FinalFeatureWidth
@@ -265,6 +265,8 @@ class WorldModel(nn.Module):
         self.save_every_steps = config.JointTrainAgent.SaveEverySteps
         self.imagine_batch_size = -1
         self.imagine_batch_length = -1
+        self.action_dim = action_dim
+        self.is_discrete = is_discrete
         self.device = device # Maybe it's not needed
         self.model = config.Models.WorldModel.Backbone
         self.max_grad_norm = config.Models.WorldModel.Max_grad_norm  
@@ -311,6 +313,7 @@ class WorldModel(nn.Module):
                 n_layer=config.Models.WorldModel.Mamba.n_layer,
                 stoch_dim=self.stoch_flattened_dim,
                 action_dim=action_dim,
+                is_discrete=is_discrete,
                 dropout_p=config.Models.WorldModel.Dropout,
                 ssm_cfg={
                     'd_state': config.Models.WorldModel.Mamba.ssm_cfg.d_state, 
